@@ -1,11 +1,13 @@
 # 棚卸PWA — セットアップとデプロイ
 
 ```
-app/
-├── index.html     アプリ本体
-├── config.js      環境ごとの設定（★ここを編集する）
-├── manifest.json  ホーム画面追加用
-└── README.md      このファイル
+app/                           ← GitHub Pages 配信用の public リポジトリ
+├── index.html                 アプリ本体
+├── config.example.js          設定のひな形
+├── config.js                  実際の設定（.gitignore 済み。ローカル確認用）
+├── manifest.json              ホーム画面追加用
+├── .github/workflows/pages.yml  Secrets から config.js を生成して Pages へデプロイ
+└── README.md                  このファイル
 ```
 
 GASバックエンド（`gas/Code.gs`）が `setup()` と `selfTest()` を通過済みであることが前提です。
@@ -27,58 +29,103 @@ GASバックエンド（`gas/Code.gs`）が `setup()` と `selfTest()` を通過
 
 ---
 
-## STEP B. OAuth クライアントID を作る
+## STEP B. GitHubリポジトリを作って Pages を有効化
+
+このフォルダは `app/` 専用の **public リポジトリ**です（`docs/` `gas/` `poc/` は別の private リポジトリ）。
+
+公開されるのはUIコードと接続先URLだけで、**財産データは一切含まれません**。台帳はすべてGAS API経由で、組織のGoogleアカウントでログインしないと1件も取得できません。
+
+> 組織のGitHubプランが **Team 以上なら private リポジトリでも Pages が使えます**。
+> その場合はリポジトリを private にして `Settings > Pages` を設定し直すだけで、外部公開をなくせます。
+
+### B-1. リポジトリを作って push
+
+```bash
+gh repo create <リポジトリ名> --public --source . --remote origin --push
+```
+
+### B-2. Secrets を登録
+
+`GAS_URL` をリポジトリのソースに置かないため、Actions が Secrets から `config.js` を生成します。
+
+```bash
+gh secret set GAS_URL    --body "https://script.google.com/macros/s/..../exec"
+gh secret set CLIENT_ID  --body "xxxxx.apps.googleusercontent.com"
+```
+
+ブラウザなら `Settings > Secrets and variables > Actions > New repository secret`。
+
+> 配信されるページには結局 `GAS_URL` が載ります（静的サイトなので避けられません）。
+> リポジトリのソースに残さないのは、**GitHubのコード検索クローラに拾われるのを防ぐ**ためです。
+> 本来の防御は URL の秘匿ではなくIDトークン検証で、同意画面を「内部」にしてあれば組織外の人間は正しい `aud` を持つトークンを取得できません。
+
+### B-3. Pages の配信元を Actions にする
+
+`Settings > Pages > Build and deployment > Source` を **`GitHub Actions`** に変更します。
+（`Deploy from a branch` のままだと `.github/workflows/pages.yml` が使われません）
+
+### B-4. デプロイ
+
+`main` に push するたびに自動デプロイされます。初回は手動で走らせても構いません。
+
+```bash
+gh workflow run "Deploy to GitHub Pages"
+gh run watch
+```
+
+公開URLは **`https://<ユーザー名>.github.io/<リポジトリ名>/`** です。
+
+---
+
+## STEP C. OAuth クライアントID を作る
 
 ログインに Google Identity Services を使うため、クライアントIDが要ります。
 
 1. <https://console.cloud.google.com/apis/credentials> を開く
    （Apps Script の `プロジェクトの設定 > Google Cloud Platform プロジェクト` と同じプロジェクトを選ぶと管理が楽）
 2. `認証情報を作成 > OAuth クライアント ID`
-   - 同意画面が未設定なら先に作る。**User Type は「内部」**（組織内限定。審査が不要になる）
+   - 同意画面が未設定なら先に作る。**User Type は「内部」**（組織内限定。審査が不要になり、組織外からのログインも塞げる）
 3. アプリケーションの種類: **ウェブアプリケーション**
-4. **承認済みの JavaScript 生成元** に、PWAを置くオリジンを追加
-   - 例: `https://xxxx.netlify.app`
-   - **末尾にスラッシュを付けないこと。** パスも書かない（オリジンのみ）
+4. **承認済みの JavaScript 生成元** に次を追加
+
+   ```
+   https://<ユーザー名>.github.io
+   ```
+
+   - **オリジンのみ。** リポジトリ名などのパスは書かない
+   - **末尾にスラッシュを付けない**
    - ローカル確認用に `http://localhost:8080` も足しておくと便利
+
 5. 発行された `xxxxx.apps.googleusercontent.com` を控える
 
-> **承認済みの生成元を登録し忘れると、ログインボタンが無反応になります。**（コンソールに `origin is not allowed` が出る）デプロイ先URLが決まってから登録する必要があるので、先にSTEP Cでデプロイしてしまってから戻ってくる形でも構いません。
+**この値を GASの `_設定` シートの `クライアントID` にも入れてください。** ここが一致しないとサーバー側の `aud` 検証に落ちます。
 
-この値を **GASの `_設定` シートの `クライアントID`** にも入れてください。ここが一致しないとサーバー側の `aud` 検証に落ちます。
-
----
-
-## STEP C. config.js を埋めてデプロイ
-
-`app/config.js`:
-
-```js
-window.CONFIG = {
-  GAS_URL:   'https://script.google.com/macros/s/..../exec',
-  CLIENT_ID: 'xxxxx.apps.googleusercontent.com',
-  ...
-};
-```
-
-デプロイ先は**HTTPSであればどこでも**構いません。
-
-| 方法 | 手順 |
-|---|---|
-| **Netlify Drop**（最速） | <https://app.netlify.com/drop> に `app` フォルダをドラッグ。アカウント不要 |
-| GitHub Pages | リポジトリに置いて Pages を有効化 |
-| 社内Webサーバ | HTTPSで配信できるなら最も望ましい |
-
-デプロイしたら、そのURLのオリジンを STEP B-4 に登録するのを忘れずに。
+> **生成元の登録を忘れると、ログインボタンが無反応になります**（コンソールに `origin is not allowed`）。
+> Pages のURLが確定してからでないと登録できないので、STEP B を先に済ませてからここに来る順になります。
 
 ---
 
 ## STEP D. iPhoneで開く
 
-1. Safariで配信URLを開く
+1. Safariで `https://<ユーザー名>.github.io/<リポジトリ名>/` を開く
 2. Googleでログイン（組織アカウント）
 3. 共有ボタン → **ホーム画面に追加**
 
 ホーム画面から起動すると全画面になり、アドレスバーの分だけ画面が広くなります。
+
+---
+
+## ローカルで試すとき
+
+`config.js` は `.gitignore` されています。ひな形をコピーして値を入れてください。
+
+```bash
+cp config.example.js config.js
+# GAS_URL と CLIENT_ID を記入
+npx serve -l 8080
+```
+
+`http://localhost:8080` は安全なコンテキスト扱いなのでカメラも動きます。この場合もオリジンを STEP C-4 に登録してください。
 
 ---
 
@@ -134,10 +181,12 @@ window.CONFIG = {
 
 | 症状 | 原因 |
 |---|---|
-| ログインボタンが無反応 | STEP B-4 の「承認済みの JavaScript 生成元」未登録 |
-| `クライアントIDが一致しません` | `config.js` と `_設定` の値が違う |
+| ログインボタンが無反応 | STEP C-4 の「承認済みの JavaScript 生成元」未登録 |
+| `クライアントIDが一致しません` | Secrets の `CLIENT_ID` と `_設定` の値が違う |
 | `許可されていないドメインです` | 組織外アカウントでログインした／`_設定` の `許可ドメイン` が違う |
 | `この棚卸回は締め切られています` | `_設定` の `状態` が `OPEN` でない |
 | カメラが使えない | 設定 > Safari > カメラ の許可。HTTPSでないと起動しません |
+| デプロイされない | `Settings > Pages > Source` が `GitHub Actions` になっているか（STEP B-3） |
+| Actions が `GAS_URL と CLIENT_ID を登録してください` で失敗 | Secrets 未登録（STEP B-2） |
 | スプレッドシートに反映されない | 1分トリガー待ち。`status()` でトリガー登録を確認 |
 | 台帳を直接編集したのにアプリに出ない | GASエディタで `resetCaches()` を実行し、アプリで「台帳を再取得」 |
