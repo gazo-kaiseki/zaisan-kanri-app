@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0d10">
+<link rel="manifest" href="manifest.json">
+<title>固定資産棚卸</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:#0b0d10; --panel:#14181d; --line:#262c33; --fg:#e8eaed; --dim:#8b949e;
+    --ok:#3fb950; --warn:#d29922; --ng:#f85149; --accent:#1f6feb; --info:#58a6ff;
+    --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; }
+  body {
+    margin:0; background:var(--bg); color:var(--fg); font-size:15px; line-height:1.5;
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    overscroll-behavior:none;
+  }
+  button, select, input { font:inherit; color:inherit; }
+  button {
+    appearance:none; border:1px solid var(--line); background:#21262d; color:var(--fg);
+    padding:10px 14px; border-radius:8px; font-weight:500;
+  }
+  button:active { background:#30363d; }
+  button.primary { background:var(--accent); border-color:var(--accent); }
+  button.ghost { background:transparent; }
+  button:disabled { opacity:.4; }
+  select, input[type=text] {
+    width:100%; background:#21262d; border:1px solid var(--line);
+    border-radius:8px; padding:10px 12px;
+  }
+  .mono { font-family:ui-monospace,Menlo,monospace; }
+  .dim { color:var(--dim); }
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .ng{color:var(--ng)} .info{color:var(--info)}
+
+  /* ---------- レイアウト ---------- */
+  #app { display:flex; flex-direction:column; height:100%; }
+  header {
+    background:var(--panel); border-bottom:1px solid var(--line);
+    padding:calc(env(safe-area-inset-top,0px) + 8px) 12px 8px; flex:none;
+  }
+  .hrow { display:flex; align-items:center; gap:8px; }
+  .hrow + .hrow { margin-top:6px; }
+  #place {
+    flex:1; min-width:0; display:flex; align-items:center; gap:6px;
+    background:#21262d; border:1px solid var(--line); border-radius:999px;
+    padding:6px 12px; font-size:13px; text-align:left;
+  }
+  #place b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #sync { font-size:12px; flex:none; padding:4px 8px; border-radius:999px; background:#21262d; }
+  #bar { height:4px; background:var(--line); border-radius:2px; overflow:hidden; }
+  #bar > i { display:block; height:100%; background:var(--ok); width:0; transition:width .3s; }
+
+  main { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .view { display:none; padding:12px; }
+  .view.on { display:block; }
+
+  nav {
+    flex:none; display:grid; grid-template-columns:repeat(3,1fr);
+    background:var(--panel); border-top:1px solid var(--line);
+    padding-bottom:var(--safe-b);
+  }
+  nav button {
+    border:0; background:transparent; border-radius:0; padding:10px 4px 8px;
+    font-size:11px; color:var(--dim); display:flex; flex-direction:column; gap:3px; align-items:center;
+  }
+  nav button.on { color:var(--info); }
+  nav button .ic { font-size:19px; line-height:1; }
+  nav .badge {
+    position:absolute; transform:translate(16px,-4px); background:var(--ng);
+    border-radius:999px; font-size:10px; padding:0 5px; color:#fff;
+  }
+
+  /* ---------- カメラ ---------- */
+  #stage { position:relative; background:#000; aspect-ratio:1/1; overflow:hidden; }
+  #video { width:100%; height:100%; object-fit:cover; display:block; }
+  #roi { position:absolute; border:2px solid var(--info); border-radius:8px;
+         box-shadow:0 0 0 9999px rgba(0,0,0,.4); pointer-events:none; }
+  #camMsg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+            text-align:center; padding:20px; font-size:14px; color:var(--dim); }
+
+  #toast {
+    margin:10px 0; padding:12px; border-radius:10px; background:var(--panel);
+    border-left:5px solid var(--line); display:none;
+  }
+  #toast.on { display:block; }
+  #toast .t1 { font-size:13px; font-weight:600; }
+  #toast .t2 { font-size:15px; margin-top:2px; word-break:break-all; }
+  #toast .t3 { font-size:12px; color:var(--dim); margin-top:4px; }
+  #toast .acts { margin-top:10px; display:flex; gap:8px; }
+  #toast .acts button { padding:8px 12px; font-size:13px; }
+
+  /* ---------- リスト ---------- */
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:12px; margin-bottom:10px; }
+  .row {
+    display:flex; align-items:center; gap:10px; padding:11px 12px;
+    border-bottom:1px solid var(--line); background:var(--panel); text-align:left; width:100%;
+    border-radius:0; border-left:0; border-right:0; border-top:0;
+  }
+  .row:first-child { border-radius:10px 10px 0 0; }
+  .row:last-child  { border-bottom:0; border-radius:0 0 10px 10px; }
+  .row .main { flex:1; min-width:0; }
+  .row .id { font-family:ui-monospace,Menlo,monospace; font-size:13px; }
+  .row .nm { font-size:12px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row .rt { flex:none; font-size:12px; text-align:right; }
+  .list { margin-bottom:14px; }
+  .sec { font-size:12px; color:var(--dim); margin:16px 0 6px; font-weight:600; }
+  .pill { font-size:11px; padding:2px 7px; border-radius:999px; background:#21262d; }
+
+  .kv { display:flex; justify-content:space-between; gap:12px; padding:3px 0; font-size:14px; }
+  .kv .k { color:var(--dim); }
+  .big { font-size:30px; font-weight:600; font-variant-numeric:tabular-nums; }
+
+  /* ---------- シート ---------- */
+  #sheet { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; z-index:10;
+           align-items:flex-end; }
+  #sheet.on { display:flex; }
+  #sheet > div { width:100%; background:var(--panel); border-radius:14px 14px 0 0;
+                 padding:16px 16px calc(16px + var(--safe-b)); max-height:85vh; overflow-y:auto; }
+  #sheet h3 { margin:0 0 4px; font-size:16px; }
+  #sheet label { display:block; font-size:12px; color:var(--dim); margin:14px 0 5px; }
+
+  #login { padding:40px 20px; text-align:center; }
+  #err { margin:10px 12px; padding:10px 12px; border-radius:8px;
+         background:#2d1416; border:1px solid #5c2326; font-size:13px; display:none; }
+</style>
+</head>
+<body>
+
+<div id="app" style="display:none">
+  <header>
+    <div class="hrow">
+      <button id="place" type="button">📍 <b>場所未選択</b></button>
+      <span id="sync" class="dim">—</span>
+    </div>
+    <div class="hrow"><div id="bar"><i></i></div></div>
+  </header>
+
+  <main>
+    <div id="err"></div>
+
+    <!-- ========== スキャン ========== -->
+    <section class="view on" id="v-scan">
+      <div id="stage">
+        <video id="video" playsinline muted autoplay></video>
+        <div id="roi"></div>
+        <div id="camMsg">「読み取り開始」を押してください</div>
+      </div>
+
+      <div id="toast">
+        <div class="t1"></div><div class="t2 mono"></div><div class="t3"></div>
+        <div class="acts"></div>
+      </div>
+
+      <div class="hrow" style="gap:8px;margin:10px 0">
+        <button id="btnCam" class="primary" style="flex:1">読み取り開始</button>
+        <button id="btnTorch" disabled>💡</button>
+        <button id="btnZoom" disabled>2x</button>
+      </div>
+
+      <div class="sec">直近の読み取り（タップで場所を修正）</div>
+      <div class="list" id="recent"></div>
+    </section>
+
+    <!-- ========== 未確認 ========== -->
+    <section class="view" id="v-pending">
+      <div class="card">
+        <div class="kv"><span class="k">対象の場所</span><b id="pendPlace">—</b></div>
+        <div class="kv"><span class="k">未確認</span><b id="pendCount">—</b></div>
+        <div class="dim" style="font-size:12px;margin-top:8px">
+          QRが剥がれている・汚れて読めない現物は、行をタップして手動で確認済みにできます。
+        </div>
+      </div>
+      <div class="list" id="pendList"></div>
+    </section>
+
+    <!-- ========== ホーム ========== -->
+    <section class="view" id="v-home">
+      <div class="card">
+        <div class="kv"><span class="k">棚卸回</span><b id="hSession">—</b></div>
+        <div class="kv"><span class="k">確認者</span><b id="hUser">—</b></div>
+        <div style="text-align:center;margin:14px 0 4px">
+          <div class="big"><span id="hDone">0</span><span class="dim" style="font-size:18px">/<span id="hTotal">0</span></span></div>
+          <div class="dim" style="font-size:12px">全体の確認済み</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="kv"><span class="k">送信待ち</span><b id="hPend">0</b></div>
+        <div class="kv"><span class="k">最終同期</span><b id="hSync">—</b></div>
+        <div class="hrow" style="margin-top:12px;gap:8px">
+          <button id="btnFlush" style="flex:1">今すぐ送信</button>
+          <button id="btnReload" style="flex:1">台帳を再取得</button>
+        </div>
+      </div>
+
+      <div class="sec">保管場所①ごとの進捗（タップで選択）</div>
+      <div class="list" id="placeList"></div>
+
+      <div style="text-align:center;margin:20px 0">
+        <button id="btnLogout" class="ghost dim">ログアウト</button>
+      </div>
+    </section>
+  </main>
+
+  <nav>
+    <button data-v="scan"    class="on"><span class="ic">📷</span>スキャン</button>
+    <button data-v="pending"><span class="ic">📋</span>未確認<span class="badge" id="navBadge" style="display:none">0</span></button>
+    <button data-v="home"><span class="ic">🏠</span>ホーム</button>
+  </nav>
+</div>
+
+<!-- ========== ログイン ========== -->
+<div id="login">
+  <h2 style="margin:0 0 6px">固定資産棚卸</h2>
+  <p class="dim" style="font-size:13px;margin:0 0 28px">組織のGoogleアカウントでログインしてください</p>
+  <div id="gbtn" style="display:flex;justify-content:center"></div>
+  <p id="loginMsg" class="dim" style="font-size:12px;margin-top:24px"></p>
+</div>
+
+<!-- ========== 場所修正シート ========== -->
+<div id="sheet"><div>
+  <h3 id="shTitle">保管場所を修正</h3>
+  <div class="dim mono" id="shId" style="font-size:13px"></div>
+  <div class="dim" id="shReg" style="font-size:12px;margin-top:6px"></div>
+
+  <label>保管場所①</label>
+  <select id="shLoc1"></select>
+  <label>保管場所②（自由入力）</label>
+  <input type="text" id="shLoc2" list="loc2list" placeholder="棚A / 3段目 など">
+  <datalist id="loc2list"></datalist>
+
+  <div class="hrow" style="margin-top:18px;gap:8px">
+    <button id="shCancel" style="flex:1">キャンセル</button>
+    <button id="shSave" class="primary" style="flex:1">この場所に修正</button>
+  </div>
+</div></div>
+
+<script src="config.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script type="module">
+const C = window.CONFIG || {};
+const $  = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s==null?'':s).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
+  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random()*16|0; return (c==='x'?r:(r&3|8)).toString(16); }));
+
+function showErr(html) { const e = $('#err'); e.style.display='block'; e.innerHTML = html; }
+function clearErr() { $('#err').style.display='none'; }
+
+if (!C.GAS_URL || !C.CLIENT_ID) {
+  $('#loginMsg').innerHTML = '<span class="ng">config.js の GAS_URL と CLIENT_ID が未設定です。</span>';
+}
+
+/* 正規化は GAS 側の normalize_() と必ず同じ規則にすること。
+   ここがずれると、端末の判定とサーバーの判定が食い違う。 */
+function normalize(v) {
+  return String(v==null?'':v)
+    .replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/[‐-―−ー]/g, '-')
+    .replace(/[\s　]/g, '')
+    .toUpperCase();
+}
+
+/* ====================== 認証 ====================== */
+
+const Auth = {
+  jwt: null, exp: 0, waiters: [], ready: false,
+
+  accept(jwt) {
+    this.jwt = jwt;
+    try { this.exp = JSON.parse(atob(jwt.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp * 1000; }
+    catch (e) { this.exp = Date.now() + 50*60*1000; }
+    const w = this.waiters; this.waiters = [];
+    w.forEach(f => f(jwt));
+  },
+
+  /* IDトークンは1時間で切れる。棚卸は数時間続くので、期限前に黙って取り直す。
+     取り直しに失敗しても送信バッファは消さず、再ログイン後にそのまま送る。 */
+  async get() {
+    if (this.jwt && Date.now() < this.exp - 120000) return this.jwt;
+    return new Promise((res, rej) => {
+      this.waiters.push(res);
+      try { google.accounts.id.prompt(); } catch (e) {}
+      setTimeout(() => {
+        if (this.waiters.includes(res)) {
+          this.waiters = this.waiters.filter(f => f !== res);
+          rej(new Error('再ログインが必要です'));
+        }
+      }, 20000);
+    });
+  },
+};
+
+window.__onCredential = (resp) => {
+  Auth.accept(resp.credential);
+  if (!Auth.ready) { Auth.ready = true; start(); }
+};
+
+function initGsi() {
+  if (!window.google || !google.accounts || !google.accounts.id) return setTimeout(initGsi, 200);
+  if (!C.CLIENT_ID) return;
+  google.accounts.id.initialize({
+    client_id: C.CLIENT_ID,
+    callback: window.__onCredential,
+    auto_select: true,
+    cancel_on_tap_outside: false,
+  });
+  google.accounts.id.renderButton($('#gbtn'), { theme:'filled_blue', size:'large', text:'signin_with', locale:'ja' });
+  google.accounts.id.prompt();
+}
+initGsi();
+
+/* ====================== API ====================== */
+
+/* GASウェブアプリは OPTIONS を処理できないので、プリフライトが起きない
+   text/plain で JSON 文字列を送る（GAS側は e.postData.contents を JSON.parse する）。 */
+async function api(action, body) {
+  const idToken = await Auth.get();
+  const res = await fetch(C.GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ action, idToken }, body || {})),
+    redirect: 'follow',
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const j = await res.json();
+  if (!j.ok) throw new Error(j.error || '不明なエラー');
+  return j;
+}
+
+/* ====================== 状態 ====================== */
+
+const LS = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+
+const S = {
+  user: null, session: null, isAdmin: false,
+  assets: [],          // [norm, 財産番号, 名称, 場所1, 場所2, 実在1, 実在2]
+  byNorm: new Map(),
+  confirmed: new Map(),// norm -> [email, ms]
+  places: [],          // 保管場所①の一覧
+  loc2by: new Map(),   // 場所1 -> Set(場所2)
+  place: LS.get('place', null),
+  recent: [],          // 直近の読み取り（画面表示用）
+  lastSync: null,
+};
+
+const deviceId = (() => {
+  let d = LS.get('deviceId', null);
+  if (!d) { d = uuid().slice(0, 8); LS.set('deviceId', d); }
+  return d;
+})();
+
+function indexAssets() {
+  S.byNorm = new Map();
+  S.loc2by = new Map();
+  for (const a of S.assets) {
+    S.byNorm.set(a[0], a);
+    const l1 = a[5] || a[3];            // 実在場所が記録済みならそちらを採用
+    const l2 = a[6] || a[4];
+    if (!S.loc2by.has(l1)) S.loc2by.set(l1, new Set());
+    if (l2) S.loc2by.get(l1).add(l2);
+  }
+}
+const locOf = a => [a[5] || a[3], a[6] || a[4]];
+
+/* ====================== 送信バッファ ====================== */
+
+const Outbox = {
+  items: LS.get('outbox', []),
+  sending: false, timer: null, backoff: 0,
+
+  save() { LS.set('outbox', this.items); paintSync(); },
+
+  push(ev) {
+    this.items.push(ev);
+    this.save();
+    if (this.items.length >= (C.FLUSH_COUNT || 3)) this.flush();
+    else this.schedule();
+  },
+
+  schedule() {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.flush(), C.FLUSH_MS || 2000);
+  },
+
+  async flush() {
+    clearTimeout(this.timer);
+    if (this.sending || !this.items.length || !Auth.jwt) return;
+    this.sending = true;
+    paintSync();
+
+    const batch = this.items.slice(0, 50);
+    try {
+      const r = await api('scans', { sessionId: S.session && S.session.id, events: batch });
+      this.items = this.items.slice(batch.length);
+      this.backoff = 0;
+      S.lastSync = Date.now();
+      applyServerResults(r.results || []);
+      clearErr();
+    } catch (e) {
+      /* 失敗しても items は捨てない。同じ eventId で再送すれば
+         サーバー側が冪等に処理するので、二重計上は起きない。 */
+      this.backoff = Math.min(30000, (this.backoff || 1000) * 2);
+      showErr('<b class="ng">送信に失敗しました</b><br>' + esc(e.message) +
+              '<br><span class="dim">' + this.items.length + '件を保留中。自動で再送します。</span>');
+      setTimeout(() => this.flush(), this.backoff);
+    } finally {
+      this.sending = false;
+      this.save();
+      if (this.items.length) this.schedule();
+    }
+  },
+};
+
+/* サーバーの判定が正。端末側で FIRST と思っていたものが、他の端末に先を越されて
+   DUPLICATE だった、というケースをここで直す。 */
+function applyServerResults(results) {
+  let changed = false;
+  for (const r of results) {
+    const norm = normalize(r.raw);
+    if (r.judge === 'UNKNOWN') continue;
+    if (r.by && r.at) { S.confirmed.set(norm, [r.by, r.at]); changed = true; }
+    const row = S.recent.find(x => x.eventId === r.eventId);
+    if (row && row.judge !== r.judge) { row.judge = r.judge; row.by = r.by; row.at = r.at; changed = true; }
+  }
+  if (changed) { paintRecent(); paintProgress(); paintPending(); }
+}
+
+/* ====================== 起動 ====================== */
+
+async function start() {
+  $('#login').style.display = 'none';
+  $('#app').style.display = 'flex';
+
+  const cached = LS.get('bootstrap', null);
+  if (cached) { applyBootstrap(cached, true); }
+
+  try {
+    const b = await api('bootstrap');
+    LS.set('bootstrap', b);
+    applyBootstrap(b, false);
+    S.lastSync = Date.now();
+    clearErr();
+  } catch (e) {
+    if (!cached) { showErr('<b class="ng">起動に失敗しました</b><br>' + esc(e.message)); return; }
+    showErr('<b class="warn">最新データを取得できませんでした</b><br>' +
+            esc(e.message) + '<br><span class="dim">保存済みのデータで続行します。</span>');
+  }
+  Outbox.flush();
+}
+
+function applyBootstrap(b, isCache) {
+  S.user    = b.user;
+  S.session = b.session;
+  S.isAdmin = !!b.isAdmin;
+  S.assets  = b.assets || [];
+  S.places  = (b.places && b.places.list) || [];
+  S.confirmed = new Map(Object.entries(b.confirmed || {}));
+  indexAssets();
+
+  // 未送信の読み取りを楽観的に反映（サーバーはまだ知らない）
+  for (const ev of Outbox.items) {
+    const n = normalize(ev.raw);
+    if (S.byNorm.has(n) && !S.confirmed.has(n)) S.confirmed.set(n, [S.user.email, Date.now()]);
+  }
+
+  if (S.place && !S.places.includes(S.place)) S.place = null;
+
+  $('#hSession').textContent = S.session.id + (S.session.status === 'OPEN' ? '' : '（締切済み）');
+  $('#hUser').textContent    = S.user.email;
+  if (S.session.status !== 'OPEN') {
+    showErr('<b class="warn">この棚卸回は締め切られています</b><br>読み取りは記録できません。');
+  }
+  if (b.places && b.places.derived) {
+    showErr('<b class="warn">保管場所タブが未整備です</b><br>' +
+            '台帳から自動導出した一覧を使っています（表記ゆれがそのまま出ます）。');
+  }
+  paintAll();
+}
+
+/* ====================== 描画 ====================== */
+
+function paintAll() { paintPlace(); paintProgress(); paintRecent(); paintPending(); paintSync(); }
+
+function paintPlace() {
+  $('#place').innerHTML = '📍 <b>' + esc(S.place || '場所未選択') + '</b>';
+  $('#pendPlace').textContent = S.place || '—';
+}
+
+function statsFor(place) {
+  let total = 0, done = 0;
+  for (const a of S.assets) {
+    if (place && locOf(a)[0] !== place) continue;
+    total++;
+    if (S.confirmed.has(a[0])) done++;
+  }
+  return { total, done };
+}
+
+function paintProgress() {
+  const all = statsFor(null);
+  $('#hDone').textContent  = all.done;
+  $('#hTotal').textContent = all.total;
+
+  const cur = S.place ? statsFor(S.place) : all;
+  $('#bar > i').style.width = cur.total ? (cur.done / cur.total * 100) + '%' : '0';
+
+  $('#placeList').innerHTML = S.places.map(p => {
+    const s = statsFor(p);
+    const pct = s.total ? Math.round(s.done / s.total * 100) : 0;
+    return '<button class="row" data-place="' + esc(p) + '">' +
+      '<div class="main"><div class="id" style="font-family:inherit">' + esc(p) + '</div>' +
+      '<div class="nm">' + s.done + ' / ' + s.total + ' 件</div></div>' +
+      '<div class="rt ' + (pct === 100 ? 'ok' : pct ? 'info' : 'dim') + '">' + pct + '%</div></button>';
+  }).join('') || '<div class="dim" style="padding:12px">保管場所がありません</div>';
+}
+
+const JUDGE = {
+  FIRST:        { c:'ok',   label:'✅ 確認しました' },
+  DUPLICATE:    { c:'warn', label:'🔁 確認済みです' },
+  MANUAL:       { c:'ok',   label:'✅ 手動で確認しました' },
+  UNKNOWN:      { c:'ng',   label:'❌ 台帳にありません' },
+  LOCATION_FIX: { c:'info', label:'📍 場所を修正しました' },
+};
+
+function paintRecent() {
+  $('#recent').innerHTML = S.recent.slice(0, 12).map(r => {
+    const j = JUDGE[r.judge] || { c:'dim', label:r.judge };
+    return '<button class="row" data-norm="' + esc(r.norm) + '">' +
+      '<div class="main"><div class="id">' + esc(r.raw) + '</div>' +
+      '<div class="nm">' + esc(r.name || '—') + '</div></div>' +
+      '<div class="rt ' + j.c + '">' + j.label.slice(0, 2) + '<div class="dim" style="font-size:11px">' +
+      new Date(r.t).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'}) + '</div></div></button>';
+  }).join('') || '<div class="dim" style="padding:12px">まだ読み取っていません</div>';
+}
+
+function pendingList() {
+  return S.assets.filter(a =>
+    (!S.place || locOf(a)[0] === S.place) && !S.confirmed.has(a[0]));
+}
+
+function paintPending() {
+  const list = pendingList();
+  $('#pendCount').textContent = list.length + ' 件';
+  const b = $('#navBadge');
+  b.style.display = list.length ? '' : 'none';
+  b.textContent = list.length > 99 ? '99+' : list.length;
+
+  $('#pendList').innerHTML = list.slice(0, 300).map(a =>
+    '<button class="row" data-pend="' + esc(a[0]) + '">' +
+    '<div class="main"><div class="id">' + esc(a[1]) + '</div>' +
+    '<div class="nm">' + esc(a[2]) + '</div></div>' +
+    '<div class="rt dim">' + esc(locOf(a)[1] || '') + '</div></button>'
+  ).join('') || '<div class="dim" style="padding:12px">未確認はありません 🎉</div>';
+
+  if (list.length > 300) {
+    $('#pendList').insertAdjacentHTML('beforeend',
+      '<div class="dim" style="padding:12px;font-size:12px">ほか ' + (list.length - 300) + ' 件</div>');
+  }
+}
+
+function paintSync() {
+  const n = Outbox.items.length;
+  const el = $('#sync');
+  el.className = n ? 'warn' : 'dim';
+  el.textContent = Outbox.sending ? '送信中…' : n ? '待 ' + n : '同期済';
+  $('#hPend').textContent = n;
+  $('#hSync').textContent = S.lastSync
+    ? new Date(S.lastSync).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit',second:'2-digit'})
+    : '—';
+}
+
+/* ====================== 読み取り処理 ====================== */
+
+let audioCtx = null;
+function beep(kind) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.frequency.value = kind === 'ok' ? 880 : kind === 'warn' ? 520 : 220;
+    g.gain.setValueAtTime(.12, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001, audioCtx.currentTime + .14);
+    o.start(); o.stop(audioCtx.currentTime + .15);
+  } catch (e) {}
+  if (navigator.vibrate) navigator.vibrate(kind === 'ok' ? 40 : kind === 'warn' ? [30,40,30] : 200);
+}
+
+const lastSeen = new Map();
+
+function onDecoded(text) {
+  const norm = normalize(text);
+  const now = Date.now();
+  if (now - (lastSeen.get(norm) || 0) < (C.SCAN_DEBOUNCE_MS || 2500)) return;
+  lastSeen.set(norm, now);
+  if (S.session && S.session.status !== 'OPEN') { beep('ng'); return; }
+  register(text, norm, 'CAMERA_QR');
+}
+
+function register(raw, norm, method) {
+  const a = S.byNorm.get(norm);
+  let judge, name = '', detail = '', acts = [];
+
+  if (!a) {
+    judge = 'UNKNOWN';
+    detail = 'この財産番号は台帳にありません。未登録として記録します。';
+    beep('ng');
+  } else {
+    name = a[2];
+    const [l1, l2] = locOf(a);
+    const prev = S.confirmed.get(norm);
+
+    if (prev && method !== 'MANUAL') {
+      judge = 'DUPLICATE';
+      detail = '確認済み（' + esc(prev[0].split('@')[0]) + ' ' +
+               new Date(prev[1]).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}) + '）';
+      beep('warn');
+    } else {
+      judge = method === 'MANUAL' ? 'MANUAL' : 'FIRST';
+      S.confirmed.set(norm, [S.user.email, Date.now()]);
+      detail = '登録場所: ' + esc(l1 || '(未設定)') + (l2 ? ' / ' + esc(l2) : '');
+      beep('ok');
+    }
+
+    /* 選択中の場所と登録場所が違うときだけ1タップで直せるようにする。
+       自動では書き換えない。場所の選び忘れで台帳を汚さないため。 */
+    if (S.place && l1 !== S.place) {
+      detail += '<br><span class="warn">⚠️ 選択中の「' + esc(S.place) + '」と違います</span>';
+      acts.push({ label: '「' + S.place + '」に修正', fn: () => fixLocation(norm, S.place, '') });
+    }
+    acts.push({ label: '場所を変更', fn: () => openSheet(norm) });
+  }
+
+  const ev = {
+    eventId: uuid(), raw: String(raw), method, deviceId,
+    loc1: a ? locOf(a)[0] : (S.place || ''),
+    loc2: a ? locOf(a)[1] : '',
+  };
+  Outbox.push(ev);
+
+  S.recent.unshift({ eventId: ev.eventId, norm, raw: String(raw), name, judge, t: Date.now() });
+  S.recent = S.recent.slice(0, 50);
+
+  showToast(judge, raw, name, detail, acts);
+  paintRecent(); paintProgress(); paintPending();
+}
+
+let toastTimer = null;
+function showToast(judge, raw, name, detail, acts) {
+  const j = JUDGE[judge] || { c:'dim', label:judge };
+  const t = $('#toast');
+  t.classList.add('on');
+  t.style.borderLeftColor = getComputedStyle(document.documentElement)
+    .getPropertyValue('--' + (j.c === 'dim' ? 'line' : j.c));
+  t.querySelector('.t1').className = 't1 ' + j.c;
+  t.querySelector('.t1').textContent = j.label;
+  t.querySelector('.t2').textContent = raw + (name ? '  ' + name : '');
+  t.querySelector('.t3').innerHTML = detail;
+
+  const box = t.querySelector('.acts');
+  box.innerHTML = '';
+  (acts || []).forEach(a => {
+    const b = document.createElement('button');
+    b.textContent = a.label;
+    b.onclick = () => { a.fn(); t.classList.remove('on'); };
+    box.appendChild(b);
+  });
+
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('on'), (acts && acts.length) ? 8000 : 2600);
+}
+
+/** 場所の訂正を LOCATION_FIX として追送する。確認状態は動かさない。 */
+function fixLocation(norm, loc1, loc2) {
+  const a = S.byNorm.get(norm);
+  if (!a) return;
+  a[5] = loc1; a[6] = loc2;          // 端末側の表示も即時更新
+  indexAssets();
+  Outbox.push({ eventId: uuid(), raw: a[1], method: 'LOCATION_FIX', deviceId, loc1, loc2 });
+  S.recent.unshift({ eventId: uuid(), norm, raw: a[1], name: a[2], judge: 'LOCATION_FIX', t: Date.now() });
+  beep('ok');
+  paintAll();
+}
+
+/* ====================== 場所修正シート ====================== */
+
+let sheetNorm = null;
+function openSheet(norm) {
+  const a = S.byNorm.get(norm);
+  if (!a) return;
+  sheetNorm = norm;
+  const [l1, l2] = locOf(a);
+
+  $('#shId').textContent  = a[1] + '  ' + a[2];
+  $('#shReg').textContent = '台帳の登録: ' + (a[3] || '(未設定)') + (a[4] ? ' / ' + a[4] : '');
+
+  const opts = [...new Set([...S.places, l1, S.place].filter(Boolean))];
+  $('#shLoc1').innerHTML = opts.map(p =>
+    '<option value="' + esc(p) + '"' + (p === (S.place || l1) ? ' selected' : '') + '>' + esc(p) + '</option>').join('');
+  $('#shLoc2').value = l2 || '';
+  refreshLoc2List($('#shLoc1').value);
+  $('#sheet').classList.add('on');
+}
+
+function refreshLoc2List(l1) {
+  const set = S.loc2by.get(l1) || new Set();
+  $('#loc2list').innerHTML = [...set].sort()
+    .map(v => '<option value="' + esc(v) + '">').join('');
+}
+$('#shLoc1').onchange = e => refreshLoc2List(e.target.value);
+$('#shCancel').onclick = () => $('#sheet').classList.remove('on');
+$('#shSave').onclick = () => {
+  if (sheetNorm) fixLocation(sheetNorm, $('#shLoc1').value, $('#shLoc2').value.trim());
+  $('#sheet').classList.remove('on');
+};
+
+/* ====================== カメラ ====================== */
+
+const video = $('#video'), roi = $('#roi');
+const canvas = document.createElement('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+let readBarcodes = null, stream = null, track = null, scanning = false;
+let zoomCaps = null, torchOn = false, scaleIdx = 0;
+const SCALES = [0.45, 0.75];
+
+async function loadReader() {
+  if (readBarcodes) return;
+  const m = await import('https://esm.sh/zxing-wasm@2/reader');
+  readBarcodes = m.readBarcodes || m.readBarcodesFromImageData;
+}
+
+async function startCam() {
+  $('#camMsg').textContent = '起動中…';
+  try { await loadReader(); }
+  catch (e) { $('#camMsg').innerHTML = '<span class="ng">デコーダの読み込みに失敗</span><br>' + esc(e.message); return; }
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} },
+    });
+  } catch (e) {
+    $('#camMsg').innerHTML = '<span class="ng">カメラを使用できません: ' + esc(e.name) + '</span><br>' +
+      '<span class="dim">設定 &gt; Safari &gt; カメラ の許可を確認してください</span>';
+    return;
+  }
+
+  video.srcObject = stream;
+  try { await video.play(); } catch (e) {}
+  track = stream.getVideoTracks()[0];
+  try { await track.applyConstraints({ advanced:[{ focusMode:'continuous' }] }); } catch (e) {}
+
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  $('#btnTorch').disabled = !caps.torch;
+  zoomCaps = caps.zoom || null;
+  $('#btnZoom').disabled = !zoomCaps;
+
+  $('#camMsg').style.display = 'none';
+  $('#btnCam').textContent = '停止';
+  $('#btnCam').classList.remove('primary');
+  scanning = true;
+  layoutRoi();
+  loop();
+}
+
+function stopCam() {
+  scanning = false;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = track = null;
+  $('#camMsg').style.display = '';
+  $('#camMsg').textContent = '「読み取り開始」を押してください';
+  $('#btnCam').textContent = '読み取り開始';
+  $('#btnCam').classList.add('primary');
+  $('#btnTorch').disabled = $('#btnZoom').disabled = true;
+}
+
+function layoutRoi() {
+  const r = $('#stage').getBoundingClientRect();
+  const s = Math.min(r.width, r.height) * Math.max(...SCALES);
+  Object.assign(roi.style, {
+    width:s+'px', height:s+'px', left:(r.width-s)/2+'px', top:(r.height-s)/2+'px' });
+}
+addEventListener('resize', layoutRoi);
+
+/* デコードは1回5〜20ms程度しかかからないが、上限を設けないと
+   数時間の作業でiPhoneが発熱してサーマルスロットリングに入る。
+   捕捉は0.1秒前後なので20fpsでも体感は変わらない。 */
+async function loop() {
+  const minInterval = 1000 / (C.DECODE_FPS || 20);
+  while (scanning) {
+    if (video.readyState < 2) { await sleep(120); continue; }
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw) { await sleep(120); continue; }
+
+    const t0 = performance.now();
+    const f = SCALES[scaleIdx++ % SCALES.length];
+    const s = Math.round(Math.min(vw, vh) * f);
+    canvas.width = s; canvas.height = s;
+    ctx.drawImage(video, (vw-s)/2, (vh-s)/2, s, s, 0, 0, s, s);
+
+    try {
+      const res = await readBarcodes(ctx.getImageData(0,0,s,s), {
+        formats: ['QRCode', 'MicroQRCode'], tryHarder: true, maxNumberOfSymbols: 5 });
+      for (const r of res) {
+        const txt = (r.text != null && r.text !== '') ? r.text : String(r.bytes || '');
+        if (txt) onDecoded(txt);
+      }
+    } catch (e) { /* 1フレームの失敗は無視 */ }
+
+    await sleep(Math.max(0, minInterval - (performance.now() - t0)));
+  }
+}
+
+/* ====================== 操作 ====================== */
+
+$('#btnCam').onclick = () => scanning ? stopCam() : startCam();
+$('#btnTorch').onclick = async () => {
+  torchOn = !torchOn;
+  try { await track.applyConstraints({ advanced:[{ torch: torchOn }] }); } catch (e) {}
+};
+$('#btnZoom').onclick = async () => {
+  if (!zoomCaps) return;
+  const cur = track.getSettings().zoom || zoomCaps.min;
+  const next = cur >= 2 ? zoomCaps.min : Math.min(2, zoomCaps.max);
+  try { await track.applyConstraints({ advanced:[{ zoom: next }] }); } catch (e) {}
+  $('#btnZoom').textContent = next >= 2 ? '1x' : '2x';
+};
+
+$$('nav button').forEach(b => b.onclick = () => {
+  $$('nav button').forEach(x => x.classList.toggle('on', x === b));
+  $$('.view').forEach(v => v.classList.toggle('on', v.id === 'v-' + b.dataset.v));
+  if (b.dataset.v === 'scan') layoutRoi();
+});
+
+$('#place').onclick = () => $$('nav button').find(b => b.dataset.v === 'home').click();
+
+$('#placeList').onclick = e => {
+  const b = e.target.closest('[data-place]');
+  if (!b) return;
+  S.place = b.dataset.place;
+  LS.set('place', S.place);
+  paintAll();
+  $$('nav button').find(x => x.dataset.v === 'scan').click();
+};
+
+$('#recent').onclick = e => {
+  const b = e.target.closest('[data-norm]');
+  if (b && S.byNorm.has(b.dataset.norm)) openSheet(b.dataset.norm);
+};
+
+$('#pendList').onclick = e => {
+  const b = e.target.closest('[data-pend]');
+  if (!b) return;
+  const a = S.byNorm.get(b.dataset.pend);
+  if (!a) return;
+  if (!confirm(a[1] + '\n' + a[2] + '\n\n手動で確認済みにしますか？')) return;
+  register(a[1], a[0], 'MANUAL');
+};
+
+$('#btnFlush').onclick  = () => Outbox.flush();
+$('#btnReload').onclick = async () => {
+  try {
+    const b = await api('bootstrap');
+    LS.set('bootstrap', b);
+    applyBootstrap(b, false);
+    S.lastSync = Date.now();
+    clearErr();
+  } catch (e) { showErr('<b class="ng">再取得に失敗</b><br>' + esc(e.message)); }
+};
+$('#btnLogout').onclick = () => {
+  if (Outbox.items.length && !confirm('未送信が ' + Outbox.items.length + ' 件あります。ログアウトしますか？')) return;
+  try { google.accounts.id.disableAutoSelect(); } catch (e) {}
+  localStorage.removeItem('bootstrap');
+  location.reload();
+};
+
+/* 画面復帰時とオンライン復帰時に取りこぼしを送る */
+document.addEventListener('visibilitychange', () => { if (!document.hidden) Outbox.flush(); });
+addEventListener('online', () => Outbox.flush());
+addEventListener('beforeunload', e => {
+  if (Outbox.items.length) { e.preventDefault(); e.returnValue = ''; }
+});
+</script>
+</body>
+</html>

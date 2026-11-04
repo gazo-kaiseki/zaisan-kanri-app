@@ -1,0 +1,10 @@
+{
+  "name": "固定資産棚卸",
+  "short_name": "棚卸",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "lang": "ja",
+  "icons": []
+}

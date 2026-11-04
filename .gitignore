@@ -1,0 +1,7 @@
+# 実際の接続先はリポジトリに入れない。
+# GitHub Pages では Actions が Secrets から生成する（.github/workflows/pages.yml）。
+# ローカルや他のホスティングで試すときは config.example.js をコピーして使う。
+config.js
+
+.DS_Store
+Thumbs.db
