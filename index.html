@@ -113,6 +113,9 @@
   .list { margin-bottom:14px; }
   .sec { font-size:12px; color:var(--dim); margin:16px 0 6px; font-weight:600; }
   .pill { font-size:11px; padding:2px 7px; border-radius:999px; background:#21262d; }
+  .pill.noqr { background:#3a2a12; color:var(--warn); }
+  #pendFilter button { font-size:13px; padding:8px 10px; }
+  #pendFilter button.on { background:var(--accent); border-color:var(--accent); }
 
   .kv { display:flex; justify-content:space-between; gap:12px; padding:3px 0; font-size:14px; }
   .kv .k { color:var(--dim); }
@@ -176,6 +179,10 @@
         <div class="kv"><span class="k">未確認</span><b id="pendCount">—</b></div>
         <div class="dim" style="font-size:12px;margin-top:8px">
           QRが剥がれている・汚れて読めない現物は、行をタップして手動で確認済みにできます。
+        </div>
+        <div class="hrow" style="margin-top:12px;gap:8px" id="pendFilter">
+          <button data-f="all" class="on" style="flex:1">すべて</button>
+          <button data-f="noqr" style="flex:1">QRなしのみ</button>
         </div>
       </div>
       <div class="list" id="pendList"></div>
@@ -353,6 +360,8 @@ const S = {
   confirmed: new Map(),// norm -> [email, ms]
   places: [],          // 保管場所①の一覧
   names: {},           // メール -> 氏名（表示用）
+  hasQrCol: false,     // 台帳に QRコード列があるか
+  pendFilter: 'all',   // 未確認リストの絞り込み
   loc2by: new Map(),   // 場所1 -> Set(場所2)
   place: LS.get('place', null),
   recent: [],          // 直近の読み取り（画面表示用）
@@ -377,6 +386,10 @@ function indexAssets() {
   }
 }
 const locOf = a => [a[5] || a[3], a[6] || a[4]];
+
+/* QRラベルが未作成の財産は読み取れないので、現場では手作業で確認する。
+   台帳に QRコード列が無い場合は全件 true が入るのでバッジは出ない。 */
+const hasQr = a => a[7] !== false;
 
 /* 画面に出すのは氏名。利用者シートに無ければメールのローカル部で代替する。 */
 const nameOf = email => S.names[String(email || '').toLowerCase()] || String(email || '').split('@')[0];
@@ -474,6 +487,7 @@ function applyBootstrap(b, isCache) {
   S.assets  = b.assets || [];
   S.places  = (b.places && b.places.list) || [];
   S.names   = b.names || {};
+  S.hasQrCol = !!b.hasQrCol;
   S.confirmed = new Map(Object.entries(b.confirmed || {}));
   indexAssets();
 
@@ -555,22 +569,35 @@ function paintRecent() {
 
 function pendingList() {
   return S.assets.filter(a =>
-    (!S.place || locOf(a)[0] === S.place) && !S.confirmed.has(a[0]));
+    (!S.place || locOf(a)[0] === S.place) &&
+    !S.confirmed.has(a[0]) &&
+    (S.pendFilter !== 'noqr' || !hasQr(a)));
 }
 
 function paintPending() {
   const list = pendingList();
-  $('#pendCount').textContent = list.length + ' 件';
+  const noQr = list.filter(a => !hasQr(a)).length;
+
+  $('#pendCount').textContent = list.length + ' 件' +
+    (S.hasQrCol && S.pendFilter === 'all' && noQr ? '（うち QRなし ' + noQr + ' 件）' : '');
+
+  /* バッジは未確認の総数。絞り込み中でも全体像が見えるようにする */
+  const all = S.assets.filter(a =>
+    (!S.place || locOf(a)[0] === S.place) && !S.confirmed.has(a[0])).length;
   const b = $('#navBadge');
-  b.style.display = list.length ? '' : 'none';
-  b.textContent = list.length > 99 ? '99+' : list.length;
+  b.style.display = all ? '' : 'none';
+  b.textContent = all > 99 ? '99+' : all;
+
+  $('#pendFilter').style.display = S.hasQrCol ? '' : 'none';
 
   $('#pendList').innerHTML = list.slice(0, 300).map(a =>
     '<button class="row" data-pend="' + esc(a[0]) + '">' +
-    '<div class="main"><div class="id">' + esc(a[1]) + '</div>' +
+    '<div class="main"><div class="id">' + esc(a[1]) +
+      (hasQr(a) ? '' : ' <span class="pill noqr">QRなし</span>') + '</div>' +
     '<div class="nm">' + esc(a[2]) + '</div></div>' +
     '<div class="rt dim">' + esc(locOf(a)[1] || '') + '</div></button>'
-  ).join('') || '<div class="dim" style="padding:12px">未確認はありません 🎉</div>';
+  ).join('') || '<div class="dim" style="padding:12px">' +
+    (S.pendFilter === 'noqr' ? 'QRなしの未確認はありません' : '未確認はありません 🎉') + '</div>';
 
   if (list.length > 300) {
     $('#pendList').insertAdjacentHTML('beforeend',
@@ -867,12 +894,21 @@ $('#recent').onclick = e => {
   if (b && S.byNorm.has(b.dataset.norm)) openSheet(b.dataset.norm);
 };
 
+$('#pendFilter').onclick = e => {
+  const b = e.target.closest('[data-f]');
+  if (!b) return;
+  S.pendFilter = b.dataset.f;
+  [...$('#pendFilter').children].forEach(x => x.classList.toggle('on', x === b));
+  paintPending();
+};
+
 $('#pendList').onclick = e => {
   const b = e.target.closest('[data-pend]');
   if (!b) return;
   const a = S.byNorm.get(b.dataset.pend);
   if (!a) return;
-  if (!confirm(a[1] + '\n' + a[2] + '\n\n手動で確認済みにしますか？')) return;
+  const note = hasQr(a) ? '' : '\n（QRラベル未作成）';
+  if (!confirm(a[1] + '\n' + a[2] + note + '\n\n手動で確認済みにしますか？')) return;
   register(a[1], a[0], 'MANUAL');
 };
 
