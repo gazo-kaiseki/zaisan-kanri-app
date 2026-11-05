@@ -39,6 +39,9 @@ jobs:
           fi
           mkdir -p _site
           cp index.html manifest.json _site/
+          cp -r icons _site/
+          # Service Worker のキャッシュ名にコミットSHAを埋め、デプロイごとに作り直させる
+          sed "s/__BUILD__/${GITHUB_SHA:-dev}/" sw.js > _site/sw.js
           printf "window.CONFIG={GAS_URL:'%s',CLIENT_ID:'%s',FLUSH_MS:2000,FLUSH_COUNT:3,SCAN_DEBOUNCE_MS:2500,DECODE_FPS:20};\n" \
             "${GAS_URL}" "${CLIENT_ID}" > _site/config.js
           echo "--- 生成された config.js（値はマスクされます）---"

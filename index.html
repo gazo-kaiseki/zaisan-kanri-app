@@ -7,6 +7,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0b0d10">
 <link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <title>固定資産棚卸</title>
 <style>
   :root {
@@ -982,6 +984,15 @@ $('#btnLogout').onclick = () => {
   localStorage.removeItem('bootstrap');
   location.reload();
 };
+
+/* Service Worker。Android の「アプリをインストール」の要件であり、
+   電波の無い場所でもアプリ本体を起動できるようにする。
+   台帳と認証はキャッシュしないので、古いデータを掴むことはない。 */
+if ('serviceWorker' in navigator) {
+  addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 
 /* 画面復帰時とオンライン復帰時に取りこぼしを送る */
 document.addEventListener('visibilitychange', () => { if (!document.hidden) Outbox.flush(); });
