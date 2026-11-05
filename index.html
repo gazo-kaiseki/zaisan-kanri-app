@@ -391,6 +391,15 @@ const locOf = a => [a[5] || a[3], a[6] || a[4]];
    台帳に QRコード列が無い場合は全件 true が入るのでバッジは出ない。 */
 const hasQr = a => a[7] !== false;
 
+/* 保管場所①が空の財産。これを選べるようにしないと、どの場所を選んでも
+   一覧に出てこず、永久に確認されないまま残る。 */
+const UNSET = '(場所未設定)';
+const matchPlace = (a, place) => {
+  if (!place) return true;                 // null = すべての場所
+  const l1 = locOf(a)[0];
+  return place === UNSET ? !l1 : l1 === place;
+};
+
 /* 画面に出すのは氏名。利用者シートに無ければメールのローカル部で代替する。 */
 const nameOf = email => S.names[String(email || '').toLowerCase()] || String(email || '').split('@')[0];
 
@@ -497,7 +506,13 @@ function applyBootstrap(b, isCache) {
     if (S.byNorm.has(n) && !S.confirmed.has(n)) S.confirmed.set(n, [S.user.email, Date.now()]);
   }
 
-  if (S.place && !S.places.includes(S.place)) S.place = null;
+  /* マスタにも台帳にも無い場所が選ばれたままなら解除する。
+     UNSET は常に有効な選択肢として扱う。 */
+  if (S.place && S.place !== UNSET &&
+      !S.places.includes(S.place) &&
+      !S.assets.some(a => locOf(a)[0] === S.place)) {
+    S.place = null;
+  }
 
   $('#hSession').textContent = S.session.id + (S.session.status === 'OPEN' ? '' : '（締切済み）');
   $('#hUser').textContent    = nameOf(S.user.email);
@@ -516,14 +531,14 @@ function applyBootstrap(b, isCache) {
 function paintAll() { paintPlace(); paintProgress(); paintRecent(); paintPending(); paintSync(); }
 
 function paintPlace() {
-  $('#place').innerHTML = '📍 <b>' + esc(S.place || '場所未選択') + '</b>';
-  $('#pendPlace').textContent = S.place || '—';
+  $('#place').innerHTML = '📍 <b>' + esc(S.place || 'すべての場所') + '</b>';
+  $('#pendPlace').textContent = S.place || 'すべての場所';
 }
 
 function statsFor(place) {
   let total = 0, done = 0;
   for (const a of S.assets) {
-    if (place && locOf(a)[0] !== place) continue;
+    if (!matchPlace(a, place)) continue;
     total++;
     if (S.confirmed.has(a[0])) done++;
   }
@@ -538,14 +553,23 @@ function paintProgress() {
   const cur = S.place ? statsFor(S.place) : all;
   $('#bar > i').style.width = cur.total ? (cur.done / cur.total * 100) + '%' : '0';
 
-  $('#placeList').innerHTML = S.places.map(p => {
-    const s = statsFor(p);
+  const unset = statsFor(UNSET);
+  const entries = ['', ...S.places];
+  if (unset.total) entries.push(UNSET);        // 空の財産があるときだけ出す
+
+  $('#placeList').innerHTML = entries.map(p => {
+    const s = statsFor(p || null);
     const pct = s.total ? Math.round(s.done / s.total * 100) : 0;
-    return '<button class="row" data-place="' + esc(p) + '">' +
-      '<div class="main"><div class="id" style="font-family:inherit">' + esc(p) + '</div>' +
+    const label = p === '' ? 'すべての場所' : p;
+    const cur = (p === '' ? !S.place : S.place === p);
+    return '<button class="row" data-place="' + esc(p) + '"' +
+      (cur ? ' style="background:#1b2430"' : '') + '>' +
+      '<div class="main"><div class="id" style="font-family:inherit">' +
+      (cur ? '📍 ' : '') + esc(label) +
+      (p === UNSET ? ' <span class="pill noqr">要設定</span>' : '') + '</div>' +
       '<div class="nm">' + s.done + ' / ' + s.total + ' 件</div></div>' +
       '<div class="rt ' + (pct === 100 ? 'ok' : pct ? 'info' : 'dim') + '">' + pct + '%</div></button>';
-  }).join('') || '<div class="dim" style="padding:12px">保管場所がありません</div>';
+  }).join('');
 }
 
 const JUDGE = {
@@ -569,7 +593,7 @@ function paintRecent() {
 
 function pendingList() {
   return S.assets.filter(a =>
-    (!S.place || locOf(a)[0] === S.place) &&
+    matchPlace(a, S.place) &&
     !S.confirmed.has(a[0]) &&
     (S.pendFilter !== 'noqr' || !hasQr(a)));
 }
@@ -583,7 +607,7 @@ function paintPending() {
 
   /* バッジは未確認の総数。絞り込み中でも全体像が見えるようにする */
   const all = S.assets.filter(a =>
-    (!S.place || locOf(a)[0] === S.place) && !S.confirmed.has(a[0])).length;
+    matchPlace(a, S.place) && !S.confirmed.has(a[0])).length;
   const b = $('#navBadge');
   b.style.display = all ? '' : 'none';
   b.textContent = all > 99 ? '99+' : all;
@@ -883,7 +907,7 @@ $('#place').onclick = () => $$('nav button').find(b => b.dataset.v === 'home').c
 $('#placeList').onclick = e => {
   const b = e.target.closest('[data-place]');
   if (!b) return;
-  S.place = b.dataset.place;
+  S.place = b.dataset.place || null;        // 空文字 = すべての場所
   LS.set('place', S.place);
   paintAll();
   $$('nav button').find(x => x.dataset.v === 'scan').click();
