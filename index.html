@@ -133,6 +133,14 @@
   #sheet h3 { margin:0 0 4px; font-size:16px; }
   #sheet label { display:block; font-size:12px; color:var(--dim); margin:14px 0 5px; }
 
+  #fatal { position:fixed; inset:0; background:var(--bg); z-index:100; display:none;
+           overflow-y:auto; padding:24px 16px calc(24px + var(--safe-b)); }
+  #fatal.on { display:block; }
+  #fatal h3 { margin:0 0 12px; font-size:17px; color:var(--ng); }
+  #fatal pre { white-space:pre-wrap; word-break:break-all; font-size:12px;
+               background:var(--panel); border:1px solid var(--line);
+               border-radius:8px; padding:12px; margin:0; max-height:50vh; overflow:auto; }
+
   #login { padding:40px 20px; text-align:center; }
   #err { margin:10px 12px; padding:10px 12px; border-radius:8px;
          background:#2d1416; border:1px solid #5c2326; font-size:13px; display:none; }
@@ -235,6 +243,21 @@
   <p id="loginMsg" class="dim" style="font-size:12px;margin-top:24px"></p>
 </div>
 
+<!-- ========== 致命的エラー ========== -->
+<div id="fatal">
+  <div>
+    <h3>アプリを起動できませんでした</h3>
+    <pre id="fatalMsg"></pre>
+    <div class="hrow" style="gap:8px;margin-top:16px">
+      <button id="fatalReload" class="primary" style="flex:1">再読み込み</button>
+      <button id="fatalReset" style="flex:1">キャッシュを消して再読み込み</button>
+    </div>
+    <p class="dim" style="font-size:12px;margin:12px 0 0">
+      未送信の読み取りは消えません。それでも直らない場合は、この内容を管理者へ連絡してください。
+    </p>
+  </div>
+</div>
+
 <!-- ========== 場所修正シート ========== -->
 <div id="sheet"><div>
   <h3 id="shTitle">保管場所を修正</h3>
@@ -259,6 +282,26 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script type="module">
 const C = window.CONFIG || {};
+/* 例外が出ても白画面にせず、原因を画面に出す。
+   起動直後の例外でも動くよう、関数宣言にして document を直接触る。 */
+function showFatal(err) {
+  try {
+    const box = document.getElementById('fatal');
+    const msg = document.getElementById('fatalMsg');
+    if (!box || !msg || box.classList.contains('on')) return;
+    const e = err || {};
+    msg.textContent = [
+      String(e.message || e),
+      e.stack ? String(e.stack).split('\n').slice(0, 6).join('\n') : '',
+      'URL: ' + location.href,
+      'UA: ' + navigator.userAgent,
+    ].filter(Boolean).join('\n\n');
+    box.classList.add('on');
+  } catch (ignored) {}
+}
+addEventListener('error', e => showFatal(e.error || new Error(e.message)));
+addEventListener('unhandledrejection', e => showFatal(e.reason));
+
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -315,8 +358,10 @@ const Auth = {
 };
 
 window.__onCredential = (resp) => {
-  Auth.accept(resp.credential);
-  if (!Auth.ready) { Auth.ready = true; start(); }
+  try {
+    Auth.accept(resp.credential);
+    if (!Auth.ready) { Auth.ready = true; start().catch(showFatal); }
+  } catch (e) { showFatal(e); }
 };
 
 function initGsi() {
@@ -331,7 +376,9 @@ function initGsi() {
   google.accounts.id.renderButton($('#gbtn'), { theme:'filled_blue', size:'large', text:'signin_with', locale:'ja' });
   google.accounts.id.prompt();
 }
-initGsi();
+/* initGsi() はモジュールの最後で呼ぶ。ここで呼ぶと、auto_select により
+   認証コールバックが即座に発火し、この下で宣言している LS や S に
+   初期化前に触れて ReferenceError になる（const の TDZ）。 */
 
 /* ====================== API ====================== */
 
@@ -1000,6 +1047,30 @@ addEventListener('online', () => Outbox.flush());
 addEventListener('beforeunload', e => {
   if (Outbox.items.length) { e.preventDefault(); e.returnValue = ''; }
 });
+
+/* ====================== 復旧 ====================== */
+
+$('#fatalReload').onclick = () => location.reload();
+$('#fatalReset').onclick = async () => {
+  /* 未送信の読み取り(outbox)は残す。台帳のキャッシュとSWだけを捨てる。 */
+  try { localStorage.removeItem('bootstrap'); } catch (e) {}
+  try {
+    if ('caches' in window) {
+      const ks = await caches.keys();
+      await Promise.all(ks.map(k => caches.delete(k)));
+    }
+    if ('serviceWorker' in navigator) {
+      const rs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(rs.map(r => r.unregister()));
+    }
+  } catch (e) {}
+  location.reload();
+};
+
+/* ====================== 起動 ====================== */
+
+/* すべての宣言が済んでから認証を開始する。順序を変えないこと。 */
+initGsi();
 </script>
 </body>
 </html>
