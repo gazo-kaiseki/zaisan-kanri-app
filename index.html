@@ -352,6 +352,7 @@ const S = {
   byNorm: new Map(),
   confirmed: new Map(),// norm -> [email, ms]
   places: [],          // 保管場所①の一覧
+  names: {},           // メール -> 氏名（表示用）
   loc2by: new Map(),   // 場所1 -> Set(場所2)
   place: LS.get('place', null),
   recent: [],          // 直近の読み取り（画面表示用）
@@ -376,6 +377,9 @@ function indexAssets() {
   }
 }
 const locOf = a => [a[5] || a[3], a[6] || a[4]];
+
+/* 画面に出すのは氏名。利用者シートに無ければメールのローカル部で代替する。 */
+const nameOf = email => S.names[String(email || '').toLowerCase()] || String(email || '').split('@')[0];
 
 /* ====================== 送信バッファ ====================== */
 
@@ -469,6 +473,7 @@ function applyBootstrap(b, isCache) {
   S.isAdmin = !!b.isAdmin;
   S.assets  = b.assets || [];
   S.places  = (b.places && b.places.list) || [];
+  S.names   = b.names || {};
   S.confirmed = new Map(Object.entries(b.confirmed || {}));
   indexAssets();
 
@@ -481,7 +486,7 @@ function applyBootstrap(b, isCache) {
   if (S.place && !S.places.includes(S.place)) S.place = null;
 
   $('#hSession').textContent = S.session.id + (S.session.status === 'OPEN' ? '' : '（締切済み）');
-  $('#hUser').textContent    = S.user.email;
+  $('#hUser').textContent    = nameOf(S.user.email);
   if (S.session.status !== 'OPEN') {
     showErr('<b class="warn">この棚卸回は締め切られています</b><br>読み取りは記録できません。');
   }
@@ -626,7 +631,7 @@ function register(raw, norm, method) {
 
     if (prev && method !== 'MANUAL') {
       judge = 'DUPLICATE';
-      detail = '確認済み（' + esc(prev[0].split('@')[0]) + ' ' +
+      detail = '確認済み（' + esc(nameOf(prev[0])) + ' ' +
                new Date(prev[1]).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}) + '）';
       beep('warn');
     } else {
